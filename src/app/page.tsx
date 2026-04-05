@@ -419,9 +419,35 @@ export default function GamePage() {
   const spawnQueueRef = useRef<EnemyType[]>([]);
   const spawnTimerRef = useRef(0);
   const betweenWavesRef = useRef(false);
-  const waveAnnounceRef = useRef({ timer: 0, text: "" });
+  const waveAnnounceRef = useRef({ timer: 0, text: "", preview: "" });
   const runningRef = useRef(false);
+  // ── UI/UX: Screen shake, combos, audio ──
+  const shakeRef = useRef(0);
+  const comboRef = useRef(0);
+  const comboTimerRef = useRef(0);
+  const audioCtxRef = useRef<AudioContext | null>(null);
   const shopOpen = betweenWavesRef.current && enemiesRef.current.length === 0 && waveRef.current > 0;
+
+  // ── Sound synthesis (Web Audio API, no external files) ──
+  const playSound = useCallback((type: "hit" | "kill" | "boss" | "shop" | "wave") => {
+    try {
+      if (!audioCtxRef.current) audioCtxRef.current = new AudioContext();
+      const ctx = audioCtxRef.current;
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      gain.gain.setValueAtTime(0.08, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.15);
+      if (type === "hit") { osc.frequency.value = 220; osc.type = "square"; gain.gain.setValueAtTime(0.06, ctx.currentTime); }
+      if (type === "kill") { osc.frequency.value = 440; osc.type = "triangle"; gain.gain.setValueAtTime(0.08, ctx.currentTime); osc.frequency.exponentialRampToValueAtTime(880, ctx.currentTime + 0.1); }
+      if (type === "boss") { osc.frequency.value = 80; osc.type = "sawtooth"; gain.gain.setValueAtTime(0.1, ctx.currentTime); gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.4); osc.frequency.linearRampToValueAtTime(40, ctx.currentTime + 0.4); }
+      if (type === "shop") { osc.frequency.value = 600; osc.type = "sine"; gain.gain.setValueAtTime(0.05, ctx.currentTime); osc.frequency.exponentialRampToValueAtTime(900, ctx.currentTime + 0.08); gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.15); }
+      if (type === "wave") { osc.frequency.value = 300; osc.type = "sine"; gain.gain.setValueAtTime(0.07, ctx.currentTime); osc.frequency.linearRampToValueAtTime(600, ctx.currentTime + 0.15); gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.3); }
+      osc.start(ctx.currentTime);
+      osc.stop(ctx.currentTime + 0.4);
+    } catch {}
+  }, []);
 
   const initGame = useCallback((numPlayers: number) => {
     agentsRef.current = [];
@@ -439,7 +465,10 @@ export default function GamePage() {
     spawnQueueRef.current = [];
     spawnTimerRef.current = 0;
     betweenWavesRef.current = false;
-    waveAnnounceRef.current = { timer: 0, text: "" };
+    waveAnnounceRef.current = { timer: 0, text: "", preview: "" };
+    shakeRef.current = 0;
+    comboRef.current = 0;
+    comboTimerRef.current = 0;
     setShowShop(false);
     setShopItems({});
     setSelectedShopHero(null);
@@ -512,8 +541,9 @@ export default function GamePage() {
         break;
     }
 
-    waveAnnounceRef.current = { timer: 1000, text: `${def.icon} ${def.label}!` };
+    waveAnnounceRef.current = { timer: 1000, text: `${def.icon} ${def.label}!`, preview: "" };
     setDisplayGold(goldRef.current);
+    playSound("shop");
   }, [shopItems]);
 
   // ── Hero upgrade (individual) ──
@@ -537,7 +567,8 @@ export default function GamePage() {
     }
 
     setDisplayGold(goldRef.current);
-    waveAnnounceRef.current = { timer: 800, text: `⬆️ ${hero.heroClass} Lv${hero.level}!` };
+    waveAnnounceRef.current = { timer: 800, text: `⬆️ ${hero.heroClass} Lv${hero.level}!`, preview: "" };
+    playSound("shop");
   }, []);
 
   // ── Canvas render loop ──
@@ -577,7 +608,13 @@ export default function GamePage() {
           waveAnnounceRef.current = {
             timer: 1500,
             text: waveRef.current === WAVES ? "⚠ FINAL WAVE ⚠" : `Wave ${waveRef.current}`,
+            preview: "",
           };
+          // Build wave preview
+          const nextComps = waveRef.current < WAVES ? WCOMP[waveRef.current] : [];
+          const counts: Record<string, number> = {};
+          for (const t of nextComps) counts[t] = (counts[t] || 0) + 1;
+          waveAnnounceRef.current.preview = Object.entries(counts).map(([t, c]) => `${c}x${t}`).join(', ');
           // Open shop after wave completion
           setShowShop(true);
           setDisplayGold(goldRef.current);
@@ -586,8 +623,14 @@ export default function GamePage() {
         waveRef.current = 1;
         spawnQueueRef.current = [...WCOMP[0]];
         spawnTimerRef.current = 0;
-        waveAnnounceRef.current = { timer: 1500, text: "Wave 1" };
+        waveAnnounceRef.current = { timer: 1500, text: "Wave 1", preview: "" };
       }
+
+      // Combo timer decay & screen shake
+      comboTimerRef.current = Math.max(0, comboTimerRef.current - dt);
+      if (comboTimerRef.current <= 0) comboRef.current = 0;
+      if (shakeRef.current > 0) shakeRef.current *= 0.9;
+      if (shakeRef.current < 0.1) shakeRef.current = 0;
 
       // Spawn enemies
       if (spawnQueueRef.current.length > 0 && !betweenWavesRef.current) {
@@ -642,9 +685,11 @@ export default function GamePage() {
               dmgToBase: Math.ceil(aCfg.dmg * 0.5), hitFlash: 0, wobble: 0,
               isStealthed: false, revealed: false,
               bossPhase: 0, hasSummonedPhase1: true, hasSummonedPhase2: true,
-            });
+                });
           }
-          waveAnnounceRef.current = { timer: 1500, text: "🔥 BOSS IS ENRAGED!" };
+          shakeRef.current = 10;
+          playSound("boss");
+          waveAnnounceRef.current = { timer: 1500, text: "🔥 BOSS IS ENRAGED!", preview: "" };
         }
 
         // Phase 2: Enrage at 25% HP
@@ -670,7 +715,9 @@ export default function GamePage() {
               bossPhase: 0, hasSummonedPhase1: true, hasSummonedPhase2: true,
             });
           }
-          waveAnnounceRef.current = { timer: 2000, text: "💀 BOSS ENRAGE—MAX POWER!" };
+          shakeRef.current = 14;
+          playSound("boss");
+          waveAnnounceRef.current = { timer: 2000, text: "💀 BOSS ENRAGE—MAX POWER!", preview: "" };
         }
       }
 
@@ -845,6 +892,16 @@ export default function GamePage() {
             if (Math.sqrt(edx * edx + edy * edy) < 20) {
               en.hp -= p.damage;
               en.hitFlash = 1;
+              // Screen shake
+              shakeRef.current = Math.min(8, shakeRef.current + (p.isCrit ? 5 : 1));
+              // Floating damage number
+              const dmgLabel = p.isCrit ? `CRIT ${Math.round(p.damage)}` : `${Math.round(p.damage)}`;
+              particlesRef.current.push({
+                x: en.x, y: en.y - 4, vx: (Math.random() - 0.5) * 0.5, vy: -0.8,
+                life: 600, maxLife: 600, color: p.isCrit ? "#ffff00" : "#ffffff",
+                size: p.isCrit ? 3 : 2, type: "text",
+                text: dmgLabel, fontSize: p.isCrit ? 14 : 10,
+              });
 
               // ─── Stealh Reveal on hit (Feature #5) ───
               if (en.isStealthed && !en.revealed) {
@@ -856,7 +913,7 @@ export default function GamePage() {
                     life: 300, maxLife: 300, color: "#a855f7", size: 1, type: "spark",
                   });
                 }
-                waveAnnounceRef.current = { timer: 800, text: "👻 Stealth revealed!" };
+                waveAnnounceRef.current = { timer: 800, text: "👻 Stealth revealed!", preview: "" };
               }
 
               let closestAgent: Agent | null = null;
@@ -871,6 +928,14 @@ export default function GamePage() {
                 goldRef.current += en.reward;
                 if (closestAgent) closestAgent.enemiesKilled++;
                 scoreRef.current += en.reward;
+                // Combo tracking
+                comboTimerRef.current = 1500;
+                comboRef.current++;
+                if (comboRef.current >= 3) {
+                  const labels = ["", "", "", "🔥 TRIPLE KILL!", "⚡ QUAD KILL!", "💀 GODLIKE!", "👑 LEGENDARY!"];
+                  const idx = Math.min(comboRef.current, 6);
+                  waveAnnounceRef.current = { timer: 1200, text: labels[idx], preview: "" };
+                }
                 for (let i = 0; i < 6; i++) {
                   const angle = Math.random() * Math.PI * 2;
                   particlesRef.current.push({
@@ -887,7 +952,10 @@ export default function GamePage() {
                   type: en.type === "boss" ? "crater" : "scorch", size: en.type === "boss" ? 4 : 1 + Math.floor(Math.random() * 2),
                   age: 0,
                 });
+                shakeRef.current = en.type === "boss" ? 12 : Math.max(shakeRef.current, 3);
+                playSound("kill");
               }
+              if (en.hp > 0) playSound("hit");
               break;
             }
           }
@@ -931,6 +999,14 @@ export default function GamePage() {
 
       const frame = (t * 0.06) | 0;
 
+      // Screen shake
+      ctx.save();
+      if (shakeRef.current > 1) {
+        const sx = (Math.random() - 0.5) * shakeRef.current;
+        const sy = (Math.random() - 0.5) * shakeRef.current;
+        ctx.translate(sx, sy);
+      }
+
       drawWarBackground(ctx, t, waveRef.current);
       drawBase(ctx, baseHPRef.current, 20, frame);
 
@@ -965,6 +1041,15 @@ export default function GamePage() {
         } else if (pp.type === "glow") {
           ctx.globalAlpha = alpha * 0.5; ctx.fillStyle = pp.color;
           ctx.fillRect(ppx, ppy, 1, 1);
+        } else if (pp.type === "text" && pp.text) {
+          ctx.globalAlpha = alpha;
+          ctx.fillStyle = pp.color;
+          ctx.font = `bold ${pp.fontSize || 10}px monospace`;
+          ctx.textAlign = "center";
+          ctx.shadowColor = pp.color;
+          ctx.shadowBlur = 3;
+          ctx.fillText(pp.text, ppx, ppy);
+          ctx.shadowBlur = 0;
         } else {
           ctx.globalAlpha = alpha; ctx.fillStyle = pp.color;
           const sz = Math.max(1, Math.round(pp.size / PIXEL_SCALE * alpha));
@@ -972,6 +1057,24 @@ export default function GamePage() {
         }
       }
       ctx.globalAlpha = 1;
+
+      // ── Floating combo counter ──
+      if (comboRef.current >= 3 && comboTimerRef.current > 0) {
+        const comboAlpha = Math.min(1, comboTimerRef.current / 500);
+        const comboSize = 8 + Math.min(comboRef.current, 4);
+        ctx.globalAlpha = comboAlpha;
+        ctx.fillStyle = "#fbbf24";
+        ctx.font = `bold ${comboSize}px monospace`;
+        ctx.textAlign = "center";
+        ctx.shadowColor = "#f97316";
+        ctx.shadowBlur = 4;
+        ctx.fillText(`COMBO ×${comboRef.current}`, PW / 2, PH - 10);
+        ctx.shadowBlur = 0;
+        ctx.globalAlpha = 1;
+      }
+
+      // Restore from screen shake translation
+      ctx.restore();
 
       // Wave announce
       if (waveAnnounceRef.current.timer > 0) {
@@ -981,7 +1084,13 @@ export default function GamePage() {
         ctx.font = `bold ${Math.max(6, Math.round(28 / PIXEL_SCALE * 1.5))}px monospace`;
         ctx.textAlign = "center";
         ctx.shadowColor = waveRef.current === WAVES ? "#ef4444" : "#fbbf24"; ctx.shadowBlur = 2;
-        ctx.fillText(waveAnnounceRef.current.text, PW / 2, Math.floor(PH / 2) - 12);
+        ctx.fillText(waveAnnounceRef.current.text, PW / 2, Math.floor(PH / 2) - 14);
+        // Wave preview subtitle
+        if (waveAnnounceRef.current.preview) {
+          ctx.font = `${Math.max(3, Math.round(22 / PIXEL_SCALE))}px monospace`;
+          ctx.fillStyle = "#94a3b8";
+          ctx.fillText(waveAnnounceRef.current.preview, PW / 2, Math.floor(PH / 2) + 2);
+        }
         ctx.shadowBlur = 0; ctx.globalAlpha = 1;
       }
 
@@ -1088,14 +1197,22 @@ export default function GamePage() {
             <div className="bg-black/60 px-2 py-1 rounded text-xs font-mono text-blue-300">🌊 W{displayWave}/{WAVES}</div>
           </div>
 
-          {/* Shop button between waves */}
+          {/* Shop & Next Wave between waves */}
           {shopOpen && (
-            <button
-              onClick={() => setShowShop(!showShop)}
-              className="pointer-events-auto px-3 py-1 bg-amber-700/80 hover:bg-amber-600 text-amber-100 rounded text-xs font-bold animate-pulse border border-amber-500/50"
-            >
-              🛒 SHOP ({displayGold}g)
-            </button>
+            <div className="pointer-events-auto flex gap-2">
+              <button
+                onClick={() => { playSound("shop"); setShowShop(!showShop); }}
+                className="px-3 py-1 bg-amber-700/80 hover:bg-amber-600 text-amber-100 rounded text-xs font-bold animate-pulse border border-amber-500/50"
+              >
+                🛒 SHOP ({displayGold}g)
+              </button>
+              <button
+                onClick={() => { playSound("wave"); betweenWavesRef.current = false; }}
+                className="px-3 py-1 bg-green-700/80 hover:bg-green-600 text-green-100 rounded text-xs font-bold border border-green-500/50"
+              >
+                ▶ Next Wave
+              </button>
+            </div>
           )}
         </div>
 
