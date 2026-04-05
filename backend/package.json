@@ -1,0 +1,13 @@
+{
+  "name": "agent-defense-backend",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "npx tsx server.ts"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "tsx": "^4.19.2",
+    "@types/node": "^22.10.2"
+  }
+}
