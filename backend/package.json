@@ -5,9 +5,11 @@
   "scripts": {
     "dev": "npx tsx server.ts"
   },
-  "dependencies": {},
+  "dependencies": {
+    "ws": "^8.20.0"
+  },
   "devDependencies": {
-    "tsx": "^4.19.2",
-    "@types/node": "^22.10.2"
+    "@types/node": "^22.10.2",
+    "tsx": "^4.19.2"
   }
 }

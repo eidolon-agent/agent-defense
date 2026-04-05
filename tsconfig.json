@@ -31,9 +31,9 @@
       "@/lib/*": [
         "./lib/*"
       ],
-      "@/components/*": [
-        "./components/*"
-      ]
+"@/components/*": [
+        "./src/components/*"
+      ],
     },
     "target": "ES2017"
   },

@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useEffect, useState, useCallback } from "react";
+import Link from "next/link";
 
 // ─── Constants ───
 
@@ -1132,6 +1133,9 @@ export default function GamePage() {
           <div className="text-6xl mb-3">⚔️</div>
           <h1 className="text-5xl font-bold text-orange-500 mb-2 tracking-wider">AGENT DEFENSE</h1>
           <p className="text-stone-600 mb-8 text-sm">The Scarred Front — Hold the line.</p>
+          <Link href="/multiplayer" className="block mb-6 text-center px-6 py-2 bg-stone-800/60 hover:bg-stone-700/60 text-stone-400 hover:text-amber-400 rounded-lg font-semibold transition border border-stone-700/30 mx-auto w-52 text-sm">
+            🌐 Multiplayer
+          </Link>
           <div className="flex flex-col items-center gap-3">
             {[1, 2, 3, 4].map(n => (
               <button key={n} onClick={() => startGame(n)}
