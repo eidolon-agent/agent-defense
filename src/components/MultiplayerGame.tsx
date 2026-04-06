@@ -363,144 +363,413 @@ function GameCanvas({ gameState, wsRef, uid, sendAction }: {
       ctx.fillStyle = "#0a0805";
       ctx.fillRect(0, 0, PW, PH);
 
-      // Lane separators
-      const lanePositions = [150, 250, 350].map(y => Math.floor(y / PIXEL_SCALE));
-      for (const ly of lanePositions) {
-        ctx.fillStyle = "rgba(255,255,255,0.04)";
-        ctx.fillRect(0, ly - 1, PW, 1);
-        // Lane label on the left
-        ctx.fillStyle = "rgba(255,255,255,0.15)";
-        ctx.font = "bold 4px monospace";
-        ctx.textAlign = "left";
-      }
-
-      // Lanes
-      const laneY: Record<string, number> = {};
-      for (const [lane, col] of Object.entries(LANES_COLORS)) {
-        const y = Math.floor(LANES_COLORS[lane as keyof typeof LANES_COLORS] ? lane === "top" ? 150 : lane === "mid" ? 250 : 350 : 250);
-        const yPx = Math.floor(y / PIXEL_SCALE);
-        // Lane path
-        ctx.fillStyle = "rgba(80,60,30,0.15)";
-        ctx.fillRect(0, yPx - 3, PW, 6);
-        // Minion path glow
-        for (let x = 0; x < PW; x += 4) {
-          const flicker = 0.06 + 0.03 * Math.sin(Date.now() * 0.002 + x * 0.1);
-          ctx.fillStyle = `rgba(160,100,40,${flicker})`;
-          ctx.fillRect(x, yPx, 2, 1);
+      // ── Lane paths (top/mid/bot) ──
+      const laneYMap: Record<string, number> = { top: 150, mid: 250, bot: 350 };
+      for (const [lane, col] of [["top","#4a90d9"],["mid","#f0d060"],["bot","#40c060"]] as [string,string][]) {
+        const yPx = Math.floor(laneYMap[lane] / PIXEL_SCALE);
+        // Lane ground
+        for (let x = 0; x < PW; x++) {
+          for (let dy = -3; dy <= 3; dy++) {
+            const shade = 18 + Math.floor(Math.sin(x * 0.3 + dy * 0.7) * 4);
+            ctx.fillStyle = `rgb(${shade},${shade - 4},${shade - 8})`;
+            ctx.fillRect(x, yPx + dy, 1, 1);
+          }
         }
-        laneY[lane] = yPx;
+        // Glowing path center
+        for (let x = 0; x < PW; x += 3) {
+          const flick = 0.08 + 0.04 * Math.sin(Date.now() * 0.002 + x * 0.15);
+          ctx.fillStyle = `rgba(160,100,40,${flick})`;
+          ctx.fillRect(x, yPx, 2, 1); ctx.fillRect(x + 1, yPx + 1, 1, 1);
+        }
+        // Lane border lines
+        ctx.fillStyle = "rgba(255,255,255,0.04)";
+        ctx.fillRect(0, yPx - 4, PW, 1);
+        ctx.fillRect(0, yPx + 4, PW, 1);
       }
 
-      // ── Base (right side) ──
-      const ratio = state.baseHP / 100;
-      const bx = PW - 8;
-      ctx.fillStyle = ratio > 0.3 ? "#1e3a5f" : "#7f1d1d";
-      ctx.fillRect(bx - 2, 0, 4, PH);
-      ctx.fillStyle = ratio > 0.3 ? "#3b82f6" : "#dc2626";
-      ctx.fillRect(bx - 3, 0, 1, PH);
+      // Sky gradient (top/bottom edges)
+      const skyGrad = ctx.createLinearGradient(0, 0, 0, PH);
+      skyGrad.addColorStop(0, "rgba(0,0,0,0.4)");
+      skyGrad.addColorStop(0.15, "rgba(0,0,0,0)");
+      skyGrad.addColorStop(0.85, "rgba(0,0,0,0)");
+      skyGrad.addColorStop(1, "rgba(0,0,0,0.4)");
+      ctx.fillStyle = skyGrad;
+      ctx.fillRect(0, 0, PW, PH);
 
-      // ── Turrets ──
+      // ── Base / Fortress (right side) ──
+      const ratio = state.baseHP / 100;
+      const bx = PW - 12;
+      const mid = Math.floor(PH / 2);
+      const low = ratio < 0.3;
+      const wallCol = low ? "#2d0505" : "#0a1620";
+      const edgeCol = low ? "#882222" : "#2d5a87";
+      const trimCol = low ? "#aa3333" : "#3b82f6";
+      const winCol = low ? "#ff4400" : "#fbbf24";
+
+      // Fortress body
+      for (let y = mid - 14; y < mid + 14; y++) {
+        for (let x = 0; x < 12; x++) {
+          const isEdge = x === 0 || x === 11;
+          const isTopBot = y === mid - 14 || y === mid + 13;
+          if (isTopBot) { ctx.fillStyle = edgeCol; ctx.fillRect(bx + x, y, 1, 1); }
+          else if (isEdge) { ctx.fillStyle = edgeCol; ctx.fillRect(bx + x, y, 1, 1); }
+          else if ((x + y) % 5 === 0) { ctx.fillStyle = trimCol; ctx.fillRect(bx + x, y, 1, 1); }
+          else if ((x + y) % 7 === 0) { ctx.fillStyle = edgeCol; ctx.fillRect(bx + x, y, 1, 1); }
+          else { ctx.fillStyle = wallCol; ctx.fillRect(bx + x, y, 1, 1); }
+        }
+      }
+
+      // Battlements (top, crenellation)
+      for (let x = 1; x < 11; x += 3) {
+        for (let dy = -3; dy <= 0; dy++) {
+          ctx.fillStyle = edgeCol; ctx.fillRect(bx + x, mid - 14 + dy, 1, 1);
+        }
+      }
+
+      // Gate (dark entrance)
+      ctx.fillStyle = "#000";
+      ctx.fillRect(bx + 4, mid - 2, 1, 1); ctx.fillRect(bx + 5, mid - 2, 1, 1);
+      ctx.fillRect(bx + 6, mid - 2, 1, 1); ctx.fillRect(bx + 7, mid - 2, 1, 1);
+      ctx.fillRect(bx + 4, mid - 1, 1, 1); ctx.fillRect(bx + 7, mid - 1, 1, 1);
+      ctx.fillRect(bx + 4, mid, 1, 1); ctx.fillRect(bx + 7, mid, 1, 1);
+      // Gate arch
+      for (let x = 3; x <= 8; x++) { ctx.fillStyle = edgeCol; ctx.fillRect(bx + x, mid - 3, 1, 1); }
+      ctx.fillStyle = "#000";
+      ctx.fillRect(bx + 3, mid - 2, 1, 1); ctx.fillRect(bx + 8, mid - 2, 1, 1);
+      ctx.fillRect(bx + 3, mid - 1, 1, 1); ctx.fillRect(bx + 8, mid - 1, 1, 1);
+      ctx.fillRect(bx + 3, mid, 1, 1); ctx.fillRect(bx + 8, mid, 1, 1);
+      ctx.fillRect(bx + 3, mid + 1, 1, 1); ctx.fillRect(bx + 8, mid + 1, 1, 1);
+
+      // Glowing windows
+      const glow = Math.sin(Date.now() * 0.004) * 0.3 + 0.7;
+      ctx.globalAlpha = glow;
+      for (let y = mid - 10; y < mid + 12; y += 8) {
+        ctx.fillStyle = winCol;
+        ctx.fillRect(bx + 2, y, 1, 1); ctx.fillRect(bx + 2, y + 1, 1, 1);
+        ctx.fillRect(bx + 9, y, 1, 1); ctx.fillRect(bx + 9, y + 1, 1, 1);
+      }
+      ctx.globalAlpha = 1;
+
+      // Flag (top center, animated)
+      const flagW = Math.sin(Date.now() * 0.006) > 0 ? 1 : 0;
+      ctx.fillStyle = "#92400e";
+      ctx.fillRect(bx + 6, mid - 22, 1, 1); ctx.fillRect(bx + 6, mid - 21, 1, 1);
+      ctx.fillRect(bx + 6, mid - 20, 1, 1); ctx.fillRect(bx + 6, mid - 19, 1, 1);
+      ctx.fillRect(bx + 6, mid - 18, 1, 1); ctx.fillRect(bx + 6, mid - 17, 1, 1);
+      ctx.fillRect(bx + 6, mid - 16, 1, 1); ctx.fillRect(bx + 6, mid - 15, 1, 1);
+      // Flag cloth
+      ctx.fillStyle = low ? "#dc2626" : trimCol;
+      ctx.fillRect(bx + 7, mid - 21, 1, 1); ctx.fillRect(bx + 8, mid - 21, 1, 1);
+      ctx.fillRect(bx + 7, mid - 20, 1, 1); ctx.fillRect(bx + 8 + flagW, mid - 20, 1, 1);
+      ctx.fillRect(bx + 7, mid - 19, 1, 1); ctx.fillRect(bx + 8 + flagW, mid - 19, 1, 1);
+      ctx.fillRect(bx + 7, mid - 18, 1, 1);
+
+      // HP bar at bottom of fortress
+      ctx.fillStyle = "#1f2937"; ctx.fillRect(bx - 1, mid + 16, 14, 1);
+      ctx.fillStyle = ratio > 0.5 ? "#22c55e" : ratio > 0.25 ? "#eab308" : "#ef4444";
+      ctx.fillRect(bx - 1, mid + 16, Math.max(1, Math.floor(14 * ratio)), 1);
+
+      // ── Turrets (one per lane) ──
       for (const t of state.turrets || []) {
-        if (!t.alive) continue;
         const ty = Math.floor(t.y / PIXEL_SCALE);
         const tx = Math.floor(t.x / PIXEL_SCALE);
-        // Turret base
-        ctx.fillStyle = "#3a2a20";
-        ctx.fillRect(tx - 2, ty - 3, 5, 7);
-        ctx.fillStyle = t.hp > t.maxHp * 0.5 ? "#fbbf24" : "#ef4444";
-        ctx.fillRect(tx - 1, ty - 2, 3, 5);
-        // Turret HP bar
-        ctx.fillStyle = "#1f2937";
-        ctx.fillRect(tx - 2, ty + 4, 5, 1);
-        const tRatio = Math.max(0, t.hp / t.maxHp);
-        ctx.fillStyle = tRatio > 0.5 ? "#22c55e" : "#eab308";
-        ctx.fillRect(tx - 2, ty + 4, Math.max(1, Math.floor(5 * tRatio)), 1);
+        const tHp = Math.max(0, t.hp / t.maxHp);
+
+        if (!t.alive) {
+          ctx.fillStyle = "#3a1a10";
+          for (let rx = -1; rx <= 1; rx++) for (let ry = -1; ry <= 1; ry++) {
+            if (Math.random() > 0.3) ctx.fillRect(tx + rx, ty + ry, 1, 1);
+          }
+          continue;
+        }
+
+        // Tower body
+        ctx.fillStyle = "#777"; ctx.fillRect(tx - 1, ty - 3, 1, 1); ctx.fillRect(tx, ty - 3, 1, 1); ctx.fillRect(tx + 1, ty - 3, 1, 1);
+        ctx.fillStyle = "#666"; ctx.fillRect(tx - 1, ty - 2, 1, 1); ctx.fillStyle = "#888"; ctx.fillRect(tx, ty - 2, 1, 1); ctx.fillStyle = "#666"; ctx.fillRect(tx + 1, ty - 2, 1, 1);
+        ctx.fillStyle = "#555"; ctx.fillRect(tx - 2, ty - 1, 1, 1); ctx.fillStyle = "#777"; ctx.fillRect(tx - 1, ty - 1, 1, 1); ctx.fillStyle = "#aaa"; ctx.fillRect(tx, ty - 1, 1, 1); ctx.fillStyle = "#777"; ctx.fillRect(tx + 1, ty - 1, 1, 1); ctx.fillStyle = "#555"; ctx.fillRect(tx + 2, ty - 1, 1, 1);
+        ctx.fillStyle = "#666"; ctx.fillRect(tx - 1, ty, 1, 1); ctx.fillStyle = "#888"; ctx.fillRect(tx, ty, 1, 1); ctx.fillStyle = "#666"; ctx.fillRect(tx + 1, ty, 1, 1);
+        ctx.fillStyle = "#444"; ctx.fillRect(tx - 2, ty + 1, 1, 1); ctx.fillRect(tx - 1, ty + 1, 1, 1); ctx.fillRect(tx, ty + 1, 1, 1); ctx.fillRect(tx + 1, ty + 1, 1, 1); ctx.fillRect(tx + 2, ty + 1, 1, 1);
+        // Cannon pointing left (toward enemies)
+        ctx.fillStyle = "#888"; ctx.fillRect(tx - 3, ty - 1, 1, 1); ctx.fillRect(tx - 3, ty, 1, 1);
+        ctx.fillStyle = "#666"; ctx.fillRect(tx - 3, ty + 1, 1, 1);
+        // HP indicator on turret top
+        ctx.fillStyle = tHp > 0.5 ? "#22c55e" : tHp > 0.25 ? "#eab308" : "#ef4444";
+        ctx.fillRect(tx, ty - 4, 1, 1);
+
+        // HP bar below turret
+        ctx.fillStyle = "#1f2937"; ctx.fillRect(tx - 3, ty + 3, 7, 1);
+        ctx.fillStyle = tHp > 0.5 ? "#22c55e" : tHp > 0.25 ? "#eab308" : "#ef4444";
+        ctx.fillRect(tx - 3, ty + 3, Math.max(1, Math.floor(7 * tHp)), 1);
       }
 
-      // ── Enemies (from right, moving left) ──
+      // ── Enemy Sprites ──
       for (const e of state.enemies || []) {
         if (e.hp <= 0) continue;
         const ex = Math.floor(e.x / PIXEL_SCALE);
         const ey = Math.floor(e.y / PIXEL_SCALE);
-        const ec = ENEMY_COLORS[e.variant] || ENEMY_COLORS.melee;
         const flash = e.hitFlash > 0.3;
 
-        const size = e.variant === "boss" ? 4 : e.variant === "tank" ? 3 : 2;
-        ctx.fillStyle = flash ? "#fff" : ec.body;
-        ctx.fillRect(ex - size, ey - size, size * 2, size * 2);
-        // Dark detail
-        ctx.fillStyle = flash ? "#fff" : ec.light;
-        ctx.fillRect(ex, ey - 1, 1, 1);
+        if (e.variant === "boss") {
+          const B = flash ? "#fff" : "#cc0000";
+          const D = flash ? "#fff" : "#660000";
+          const L = flash ? "#fff" : "#ff4444";
+          const H = flash ? "#fff" : "#fbbf24";
+          const M = flash ? "#fff" : "#94a3b8";
+          // Ambient aura
+          const pulse = Math.sin(Date.now() * 0.008) * 0.3 + 0.7;
+          ctx.globalAlpha = pulse * 0.2;
+          ctx.fillStyle = "#cc0000";
+          for (let ax = -6; ax <= 6; ax++) for (let ay = -3; ay <= 3; ay++) {
+            if (Math.abs(Math.abs(ax) + Math.abs(ay)) <= 7 && Math.random() > 0.5) ctx.fillRect(ex + ax, ey + ay, 1, 1);
+          }
+          ctx.globalAlpha = 1;
+          // Crown
+          for (let ci = -4; ci <= 4; ci += 2) { ctx.fillStyle = H; ctx.fillRect(ex + ci, ey - 8, 1, 1); ctx.fillRect(ex + ci, ey - 7, 1, 1); }
+          // Head
+          ctx.fillStyle = D; ctx.fillRect(ex - 2, ey - 6, 1, 1); ctx.fillStyle = B; ctx.fillRect(ex - 1, ey - 6, 2, 1); ctx.fillStyle = D; ctx.fillRect(ex + 1, ey - 6, 1, 1); ctx.fillRect(ex + 2, ey - 6, 1, 1);
+          ctx.fillStyle = D; ctx.fillRect(ex - 1, ey - 5, 1, 1); ctx.fillStyle = B; ctx.fillRect(ex, ey - 5, 1, 1); ctx.fillStyle = D; ctx.fillRect(ex + 1, ey - 5, 1, 1);
+          // Eyes
+          ctx.fillStyle = "#ffff00"; ctx.fillRect(ex - 1, ey - 4, 1, 1); ctx.fillRect(ex + 1, ey - 4, 1, 1);
+          // Body
+          ctx.fillStyle = D; ctx.fillRect(ex - 3, ey - 3, 2, 1); ctx.fillStyle = B; ctx.fillRect(ex - 1, ey - 3, 3, 1); ctx.fillStyle = D; ctx.fillRect(ex + 2, ey - 3, 2, 1);
+          ctx.fillStyle = B; ctx.fillRect(ex - 2, ey - 2, 1, 1); ctx.fillRect(ex - 1, ey - 2, 3, 1); ctx.fillRect(ex + 2, ey - 2, 1, 1);
+          ctx.fillStyle = M; ctx.fillRect(ex - 1, ey, 1, 1); ctx.fillRect(ex, ey, 1, 1); ctx.fillRect(ex + 1, ey, 1, 1);
+          // Belt
+          ctx.fillStyle = H; for (let bi = -3; bi <= 3; bi++) ctx.fillRect(ex + bi, ey + 1, 1, 1);
+          // Legs
+          ctx.fillStyle = D; for (let li = -3; li <= 3; li++) ctx.fillRect(ex + li, ey + 2, 1, 1);
+          ctx.fillRect(ex - 3, ey + 3, 2, 1); ctx.fillRect(ex + 2, ey + 3, 2, 1);
+        } else if (e.variant === "tank") {
+          const B = flash ? "#fff" : "#555555";
+          const L = flash ? "#fff" : "#888888";
+          const D = flash ? "#fff" : "#333333";
+          const M = flash ? "#fff" : "#666666";
+          const A = flash ? "#fff" : "#ff4444";
+          // Helmet
+          ctx.fillStyle = L; ctx.fillRect(ex, ey - 3, 1, 1);
+          ctx.fillStyle = D; ctx.fillRect(ex - 1, ey - 2, 1, 1); ctx.fillRect(ex + 1, ey - 2, 1, 1);
+          ctx.fillStyle = B; ctx.fillRect(ex, ey - 2, 1, 1);
+          ctx.fillStyle = A; ctx.fillRect(ex - 1, ey - 1, 1, 1); ctx.fillRect(ex + 1, ey - 1, 1, 1);
+          // Body
+          for (let xi = -3; xi <= 3; xi++) { ctx.fillStyle = xi === 0 ? L : (Math.abs(xi) === 3 ? D : B); ctx.fillRect(ex + xi, ey, 1, 1); }
+          for (let xi = -2; xi <= 2; xi++) { ctx.fillStyle = xi === 0 ? M : B; ctx.fillRect(ex + xi, ey + 1, 1, 1); }
+          // Legs
+          ctx.fillStyle = D; for (let xi = -2; xi <= 2; xi++) ctx.fillRect(ex + xi, ey + 2, 1, 1);
+          ctx.fillRect(ex - 2, ey + 3, 1, 1); ctx.fillRect(ex - 1, ey + 3, 1, 1); ctx.fillRect(ex + 1, ey + 3, 1, 1); ctx.fillRect(ex + 2, ey + 3, 1, 1);
+        } else if (e.variant === "caster") {
+          const B = flash ? "#fff" : "#aa44cc";
+          const L = flash ? "#fff" : "#cc66ff";
+          const D = flash ? "#fff" : "#662288";
+          // Hood
+          ctx.fillStyle = D; ctx.fillRect(ex, ey - 4, 1, 1); ctx.fillRect(ex - 1, ey - 3, 1, 1); ctx.fillStyle = B; ctx.fillRect(ex, ey - 3, 1, 1); ctx.fillStyle = D; ctx.fillRect(ex + 1, ey - 3, 1, 1);
+          ctx.fillStyle = L; ctx.fillRect(ex - 1, ey - 2, 1, 1); ctx.fillStyle = B; ctx.fillRect(ex, ey - 2, 1, 1); ctx.fillStyle = L; ctx.fillRect(ex + 1, ey - 2, 1, 1);
+          // Body
+          for (let xi = -1; xi <= 1; xi++) { ctx.fillStyle = B; ctx.fillRect(ex + xi, ey - 1, 1, 1); }
+          for (let xi = -2; xi <= 2; xi++) { ctx.fillStyle = xi === 0 ? L : B; ctx.fillRect(ex + xi, ey, 1, 1); }
+          // Spell orb (pulsing)
+          const orbPulse = Math.sin(Date.now() * 0.008) * 0.4 + 0.6;
+          ctx.globalAlpha = orbPulse; ctx.fillStyle = L; ctx.fillRect(ex - 3, ey, 1, 1); ctx.globalAlpha = orbPulse * 0.5; ctx.fillRect(ex - 4, ey, 1, 1); ctx.fillRect(ex - 3, ey - 1, 1, 1); ctx.globalAlpha = 1;
+          // Staff
+          for (let si = -4; si <= 2; si++) { ctx.fillStyle = "#92400e"; ctx.fillRect(ex + 3, ey + si, 1, 1); }
+          ctx.fillStyle = L; ctx.fillRect(ex + 4, ey - 3, 1, 1); ctx.fillRect(ex + 4, ey - 4, 1, 1); ctx.fillRect(ex + 4, ey - 2, 1, 1);
+          // Legs
+          ctx.fillStyle = D; ctx.fillRect(ex - 1, ey + 1, 1, 1); ctx.fillRect(ex + 1, ey + 1, 1, 1);
+          ctx.fillRect(ex - 1, ey + 2, 1, 1); ctx.fillRect(ex + 1, ey + 2, 1, 1);
+        } else if (e.variant === "ranged") {
+          const B = flash ? "#fff" : "#cc8844";
+          const L = flash ? "#fff" : "#ffaa66";
+          const D = flash ? "#fff" : "#885522";
+          // Head
+          ctx.fillStyle = L; ctx.fillRect(ex, ey - 2, 1, 1); ctx.fillRect(ex - 1, ey - 1, 1, 1); ctx.fillStyle = B; ctx.fillRect(ex, ey - 1, 1, 1); ctx.fillStyle = L; ctx.fillRect(ex + 1, ey - 1, 1, 1);
+          ctx.fillStyle = "#ffff00"; ctx.fillRect(ex - 1, ey, 1, 1); ctx.fillRect(ex + 1, ey, 1, 1);
+          // Body
+          ctx.fillStyle = B; ctx.fillRect(ex - 1, ey, 1, 1); ctx.fillStyle = L; ctx.fillRect(ex, ey, 1, 1); ctx.fillStyle = B; ctx.fillRect(ex + 1, ey, 1, 1);
+          ctx.fillStyle = B; ctx.fillRect(ex, ey + 1, 1, 1);
+          // Bow
+          ctx.fillStyle = D; for (let bi = -3; bi <= 3; bi++) ctx.fillRect(ex + 3, ey + bi, 1, 1);
+          ctx.fillRect(ex + 4, ey - 3, 1, 1); ctx.fillRect(ex + 4, ey + 3, 1, 1);
+          // Arrow
+          ctx.fillStyle = "#fed7aa"; ctx.fillRect(ex + 2, ey, 1, 1); ctx.fillStyle = L; ctx.fillRect(ex + 1, ey, 1, 1);
+          // Quiver
+          ctx.fillStyle = D; ctx.fillRect(ex - 2, ey, 1, 1); ctx.fillRect(ex - 2, ey + 1, 1, 1); ctx.fillRect(ex - 2, ey + 2, 1, 1);
+          ctx.fillStyle = "#fed7aa"; ctx.fillRect(ex - 2, ey - 1, 1, 1); ctx.fillRect(ex - 2, ey + 3, 1, 1);
+          // Legs
+          ctx.fillStyle = D; ctx.fillRect(ex - 1, ey + 2, 1, 1); ctx.fillRect(ex + 1, ey + 2, 1, 1);
+          ctx.fillRect(ex - 1, ey + 3, 1, 1); ctx.fillRect(ex + 1, ey + 3, 1, 1);
+        } else { // melee
+          const B = flash ? "#fff" : "#cc5544";
+          const L = flash ? "#fff" : "#ff8877";
+          const D = flash ? "#fff" : "#883322";
+          const M = flash ? "#fff" : "#665544";
+          // Head
+          ctx.fillStyle = L; ctx.fillRect(ex, ey - 2, 1, 1);
+          ctx.fillStyle = D; ctx.fillRect(ex - 1, ey - 1, 1, 1); ctx.fillStyle = B; ctx.fillRect(ex, ey - 1, 1, 1); ctx.fillStyle = D; ctx.fillRect(ex + 1, ey - 1, 1, 1);
+          ctx.fillStyle = "#ffff00"; ctx.fillRect(ex - 1, ey, 1, 1); ctx.fillRect(ex + 1, ey, 1, 1);
+          // Body
+          for (let xi = -2; xi <= 2; xi++) { ctx.fillStyle = Math.abs(xi) === 2 ? D : B; ctx.fillRect(ex + xi, ey, 1, 1); }
+          // Armor
+          ctx.fillStyle = M; ctx.fillRect(ex - 1, ey + 1, 1, 1); ctx.fillStyle = B; ctx.fillRect(ex, ey + 1, 1, 1); ctx.fillStyle = M; ctx.fillRect(ex + 1, ey + 1, 1, 1);
+          // Axe
+          ctx.fillStyle = M; ctx.fillRect(ex + 3, ey - 1, 1, 1); ctx.fillRect(ex + 3, ey, 1, 1); ctx.fillRect(ex + 4, ey - 1, 1, 1); ctx.fillRect(ex + 4, ey, 1, 1);
+          ctx.fillStyle = D; ctx.fillRect(ex + 3, ey + 1, 1, 1);
+          // Legs
+          ctx.fillStyle = D; ctx.fillRect(ex - 1, ey + 2, 1, 1); ctx.fillRect(ex + 1, ey + 2, 1, 1);
+          ctx.fillRect(ex - 2, ey + 3, 1, 1); ctx.fillRect(ex - 1, ey + 3, 1, 1); ctx.fillRect(ex, ey + 3, 1, 1); ctx.fillRect(ex + 1, ey + 3, 1, 1); ctx.fillRect(ex + 2, ey + 3, 1, 1);
+        }
+
         // HP bar
         if (e.maxHp > 10) {
-          ctx.fillStyle = "#1f2937";
-          ctx.fillRect(ex - size, ey + size + 1, size * 2, 1);
-          const eRatio = e.hp / e.maxHp;
+          const eSize = e.variant === "boss" ? 5 : e.variant === "tank" ? 3 : 2;
+          ctx.fillStyle = "#1f2937"; ctx.fillRect(ex - eSize, ey + eSize + 2, eSize * 2, 1);
+          const eRatio = Math.max(0, e.hp / e.maxHp);
           ctx.fillStyle = eRatio > 0.5 ? "#22c55e" : eRatio > 0.25 ? "#eab308" : "#ef4444";
-          ctx.fillRect(ex - size, ey + size + 1, Math.max(1, Math.floor(size * 2 * eRatio)), 1);
-        }
-        // Boss crown
-        if (e.variant === "boss") {
-          ctx.fillStyle = "#fbbf24";
-          ctx.fillRect(ex - 3, ey - 6, 1, 2);
-          ctx.fillRect(ex, ey - 6, 1, 2);
-          ctx.fillRect(ex + 3, ey - 6, 1, 2);
+          ctx.fillRect(ex - eSize, ey + eSize + 2, Math.max(1, Math.floor(eSize * 2 * eRatio)), 1);
         }
       }
 
-      // ── Heroes ──
+      // ── Hero Sprites ──
       const myHero = (state.heroes || []).find((h: any) => h.uid === uid);
       for (const h of state.heroes || []) {
         if (!h.alive) {
-          // Death marker
-          const hx = Math.floor(h.x / PIXEL_SCALE);
-          const hy = Math.floor(h.y / PIXEL_SCALE);
-          ctx.fillStyle = "rgba(255,0,0,0.2)";
-          ctx.font = "6px monospace";
-          ctx.textAlign = "center";
-          ctx.fillText(`${h.nick || "Hero"}`, hx, hy);
+          const dx = Math.floor(h.x / PIXEL_SCALE);
+          const dy = Math.floor(h.y / PIXEL_SCALE);
+          // Death marker: skull-ish (fading red X)
+          ctx.globalAlpha = 0.3 + Math.sin(Date.now() * 0.005) * 0.1;
+          ctx.fillStyle = "#ef4444";
+          for (let sx = -2; sx <= 2; sx++) {
+            for (let sy = -2; sy <= 2; sy++) {
+              if (Math.abs(sx) + Math.abs(sy) <= 3) ctx.fillRect(dx + sx, dy + sy, 1, 1);
+            }
+          }
+          ctx.globalAlpha = 1;
+          // Death timer
+          ctx.font = "4px monospace"; ctx.textAlign = "center";
+          ctx.fillStyle = "rgba(255,100,100,0.6)";
+          ctx.fillText(`${h.nick || "?"}`, dx, dy + 5);
           continue;
         }
 
         const hc = HERO_COLORS[h.heroClass] || HERO_COLORS.knight;
-        const size = h.heroClass === "knight" ? 3 : h.heroClass === "mage" ? 2 : h.heroClass === "archer" ? 2 : 2;
         const hx = Math.floor(h.x / PIXEL_SCALE);
-        const hy = Math.floor(h.y / PIXEL_SCALE) + Math.floor(Math.sin(Date.now() * 0.005 + h.uid.charCodeAt(2)) * 0.5);
+        const hy = Math.floor(h.y / PIXEL_SCALE) + Math.floor(Math.sin(Date.now() * 0.005 + h.uid.charCodeAt(0)) * 0.5);
+        const flash = h.hitFlash > 0.3;
+        const B = flash ? "#fff" : hc.body;
+        const L = flash ? "#fff" : hc.light;
+        const D = flash ? "#fff" : hc.dark;
+        const A = flash ? "#fff" : "#fbbf24";
+        const S = flash ? "#fff" : "#94a3b8";
+        const isMine = h.uid === uid;
 
         // Shadow
-        ctx.globalAlpha = 0.2;
+        ctx.globalAlpha = 0.15;
         ctx.fillStyle = hc.light;
-        ctx.fillRect(hx - 3, hy - 3, 7, 1);
+        for (let sx = -2; sx <= 2; sx++) ctx.fillRect(hx + sx, hy + 3, 1, 1);
         ctx.globalAlpha = 1;
 
-        // Body
-        ctx.fillStyle = h.hitFlash > 0.3 ? "#fff" : hc.body;
-        ctx.fillRect(hx - size, hy - size, size * 2, size * 2);
-        // Face detail
-        ctx.fillStyle = hc.light;
-        ctx.fillRect(hx - 1, hy, 1, 1);
-        ctx.fillRect(hx + 1, hy, 1, 1);
+        if (h.heroClass === "knight") {
+          // Helmet + gold trim
+          ctx.fillStyle = A; ctx.fillRect(hx, hy - 5, 1, 1);
+          ctx.fillStyle = D; ctx.fillRect(hx - 1, hy - 4, 1, 1); ctx.fillStyle = B; ctx.fillRect(hx, hy - 4, 1, 1); ctx.fillStyle = D; ctx.fillRect(hx + 1, hy - 4, 1, 1);
+          ctx.fillStyle = L; ctx.fillRect(hx - 1, hy - 3, 1, 1); ctx.fillRect(hx + 1, hy - 3, 1, 1); ctx.fillStyle = B; ctx.fillRect(hx, hy - 3, 1, 1);
+          // Shoulders (wide)
+          ctx.fillStyle = D; ctx.fillRect(hx - 2, hy - 2, 1, 1); ctx.fillStyle = B; ctx.fillRect(hx - 1, hy - 2, 1, 1); ctx.fillStyle = L; ctx.fillRect(hx, hy - 2, 1, 1); ctx.fillStyle = B; ctx.fillRect(hx + 1, hy - 2, 1, 1); ctx.fillStyle = D; ctx.fillRect(hx + 2, hy - 2, 1, 1);
+          // Chest
+          ctx.fillStyle = B; ctx.fillRect(hx - 1, hy - 1, 1, 1); ctx.fillStyle = D; ctx.fillRect(hx, hy - 1, 1, 1); ctx.fillStyle = B; ctx.fillRect(hx + 1, hy - 1, 1, 1);
+          ctx.fillStyle = B; ctx.fillRect(hx - 1, hy, 1, 1); ctx.fillRect(hx, hy, 1, 1); ctx.fillRect(hx + 1, hy, 1, 1);
+          // Shield (left)
+          ctx.fillStyle = S; ctx.fillRect(hx - 3, hy - 3, 1, 1); ctx.fillRect(hx - 3, hy - 2, 1, 1); ctx.fillRect(hx - 3, hy - 1, 1, 1);
+          ctx.fillStyle = A; ctx.fillRect(hx - 3, hy, 1, 1);
+          ctx.fillStyle = S; ctx.fillRect(hx - 3, hy + 1, 1, 1); ctx.fillRect(hx - 3, hy + 2, 1, 1);
+          // Sword (right)
+          ctx.fillStyle = S; ctx.fillRect(hx + 3, hy - 3, 1, 1); ctx.fillRect(hx + 3, hy - 2, 1, 1); ctx.fillRect(hx + 3, hy - 1, 1, 1); ctx.fillRect(hx + 3, hy, 1, 1);
+          ctx.fillStyle = D; ctx.fillRect(hx + 3, hy + 1, 1, 1);
+          ctx.fillStyle = S; ctx.fillRect(hx + 4, hy - 4, 1, 1); // blade tip
+          // Belt
+          ctx.fillStyle = S; ctx.fillRect(hx - 1, hy + 1, 1, 1); ctx.fillStyle = A; ctx.fillRect(hx, hy + 1, 1, 1); ctx.fillStyle = S; ctx.fillRect(hx + 1, hy + 1, 1, 1);
+          // Legs
+          ctx.fillStyle = D; ctx.fillRect(hx - 1, hy + 2, 1, 1); ctx.fillRect(hx + 1, hy + 2, 1, 1);
+          for (let sx = -2; sx <= 2; sx++) ctx.fillRect(hx + sx, hy + 3, 1, 1);
+        } else if (h.heroClass === "archer") {
+          // Hood
+          ctx.fillStyle = D; ctx.fillRect(hx, hy - 5, 1, 1);
+          ctx.fillRect(hx - 1, hy - 4, 1, 1); ctx.fillStyle = B; ctx.fillRect(hx, hy - 4, 1, 1); ctx.fillStyle = D; ctx.fillRect(hx + 1, hy - 4, 1, 1);
+          ctx.fillStyle = "#fed7aa"; ctx.fillRect(hx - 1, hy - 3, 1, 1); ctx.fillStyle = L; ctx.fillRect(hx, hy - 3, 1, 1); ctx.fillStyle = "#fed7aa"; ctx.fillRect(hx + 1, hy - 3, 1, 1);
+          // Body
+          ctx.fillStyle = B; ctx.fillRect(hx - 1, hy - 2, 1, 1); ctx.fillStyle = L; ctx.fillRect(hx, hy - 2, 1, 1); ctx.fillStyle = B; ctx.fillRect(hx + 1, hy - 2, 1, 1);
+          ctx.fillStyle = B; ctx.fillRect(hx, hy - 1, 1, 1);
+          // Belt
+          ctx.fillStyle = "#92400e"; ctx.fillRect(hx - 1, hy, 1, 1); ctx.fillRect(hx, hy, 1, 1); ctx.fillRect(hx + 1, hy, 1, 1);
+          // Legs
+          ctx.fillStyle = D; ctx.fillRect(hx - 1, hy + 1, 1, 1); ctx.fillRect(hx + 1, hy + 1, 1, 1);
+          ctx.fillRect(hx - 1, hy + 2, 1, 1); ctx.fillRect(hx + 1, hy + 2, 1, 1);
+          // Bow (right, tall)
+          ctx.fillStyle = "#92400e";
+          for (let bi = -4; bi <= 3; bi++) ctx.fillRect(hx + 3, hy + bi, 1, 1);
+          ctx.fillRect(hx + 4, hy - 4, 1, 1); ctx.fillRect(hx + 4, hy + 3, 1, 1);
+          // Arrow nocked
+          ctx.fillStyle = "#fed7aa"; ctx.fillRect(hx + 2, hy - 1, 1, 1); ctx.fillStyle = L; ctx.fillRect(hx + 1, hy - 1, 1, 1);
+          // Quiver
+          ctx.fillStyle = "#92400e";
+          for (let qi = 0; qi < 3; qi++) ctx.fillRect(hx - 2, hy - 1 + qi, 1, 1);
+          ctx.fillStyle = "#fed7aa"; ctx.fillRect(hx - 2, hy - 2, 1, 1); ctx.fillRect(hx - 2, hy + 3, 1, 1);
+        } else if (h.heroClass === "mage") {
+          // Pointed hat
+          ctx.fillStyle = A; ctx.fillRect(hx, hy - 6, 1, 1);
+          ctx.fillStyle = D; ctx.fillRect(hx, hy - 5, 1, 1);
+          ctx.fillRect(hx - 1, hy - 4, 1, 1); ctx.fillStyle = B; ctx.fillRect(hx, hy - 4, 1, 1); ctx.fillStyle = D; ctx.fillRect(hx + 1, hy - 4, 1, 1);
+          ctx.fillStyle = L; ctx.fillRect(hx - 1, hy - 3, 1, 1); ctx.fillStyle = B; ctx.fillRect(hx, hy - 3, 1, 1); ctx.fillStyle = L; ctx.fillRect(hx + 1, hy - 3, 1, 1);
+          // Face
+          ctx.fillStyle = B; ctx.fillRect(hx, hy - 2, 1, 1);
+          // Robe body
+          ctx.fillStyle = B; for (let xi = -1; xi <= 1; xi++) ctx.fillRect(hx + xi, hy - 1, 1, 1);
+          // Robe hem (wide)
+          for (let xi = -2; xi <= 2; xi++) { ctx.fillStyle = xi === 0 ? L : (xi === -2 || xi === 2 ? D : B); ctx.fillRect(hx + xi, hy, 1, 1); }
+          // Legs
+          ctx.fillStyle = D; ctx.fillRect(hx - 1, hy + 1, 1, 1); ctx.fillRect(hx + 1, hy + 1, 1, 1);
+          ctx.fillRect(hx - 1, hy + 2, 1, 1); ctx.fillRect(hx + 1, hy + 2, 1, 1);
+          // Staff
+          ctx.fillStyle = "#92400e"; for (let si = -5; si <= 2; si++) ctx.fillRect(hx + 3, hy + si, 1, 1);
+          // Staff orb (glowing)
+          const orbPulse2 = Math.sin(Date.now() * 0.006) * 0.3 + 0.7;
+          ctx.globalAlpha = orbPulse2; ctx.fillStyle = A; ctx.fillRect(hx + 4, hy - 5, 1, 1); ctx.fillRect(hx + 4, hy - 4, 1, 1);
+          ctx.globalAlpha = orbPulse2 * 0.5; ctx.fillRect(hx + 3, hy - 6, 1, 1); ctx.globalAlpha = 1;
+          // Magic orb (left, floating)
+          ctx.globalAlpha = orbPulse2; ctx.fillStyle = L; ctx.fillRect(hx - 3, hy, 1, 1); ctx.fillRect(hx - 4, hy, 1, 1);
+          ctx.fillRect(hx - 3, hy - 1, 1, 1); ctx.globalAlpha = 1;
+        } else if (h.heroClass === "rogue") {
+          // Hood
+          ctx.fillStyle = D; ctx.fillRect(hx, hy - 5, 1, 1);
+          ctx.fillRect(hx - 1, hy - 4, 1, 1); ctx.fillStyle = B; ctx.fillRect(hx, hy - 4, 1, 1); ctx.fillStyle = D; ctx.fillRect(hx + 1, hy - 4, 1, 1);
+          // Eyes
+          ctx.fillStyle = L; ctx.fillRect(hx - 1, hy - 3, 1, 1); ctx.fillRect(hx + 1, hy - 3, 1, 1);
+          // Body
+          ctx.fillStyle = B; ctx.fillRect(hx, hy - 2, 1, 1);
+          ctx.fillRect(hx - 1, hy - 1, 1, 1); ctx.fillStyle = D; ctx.fillRect(hx, hy - 1, 1, 1); ctx.fillStyle = B; ctx.fillRect(hx + 1, hy - 1, 1, 1);
+          ctx.fillStyle = S; ctx.fillRect(hx, hy, 1, 1); // buckle
+          // Cloak
+          ctx.fillStyle = D; ctx.fillRect(hx - 2, hy + 1, 1, 1); ctx.fillStyle = B; ctx.fillRect(hx - 1, hy + 1, 2, 1); ctx.fillStyle = D; ctx.fillRect(hx + 2, hy + 1, 1, 1);
+          // Legs
+          ctx.fillStyle = D; ctx.fillRect(hx - 1, hy + 2, 1, 1); ctx.fillRect(hx + 1, hy + 2, 1, 1);
+          // Left dagger
+          ctx.fillStyle = S; ctx.fillRect(hx - 3, hy - 1, 1, 1); ctx.fillRect(hx - 3, hy, 1, 1); ctx.fillRect(hx - 3, hy + 1, 1, 1);
+          // Right daggers
+          ctx.fillRect(hx + 3, hy - 2, 1, 1); ctx.fillRect(hx + 3, hy - 1, 1, 1); ctx.fillRect(hx + 3, hy, 1, 1); ctx.fillRect(hx + 3, hy + 1, 1, 1);
+          ctx.fillRect(hx + 4, hy - 3, 1, 1); // blade tip
+        }
 
         // Level indicator
-        if (h.level > 1) {
-          ctx.fillStyle = "#fbbf24";
-          ctx.fillRect(hx - 3, hy - size - 2, 6, 1);
+        if (h.level >= 2) {
+          ctx.globalAlpha = 0.5; ctx.fillStyle = A; ctx.fillRect(hx, hy - 7, 1, 1);
+          ctx.fillRect(hx - 3, hy - 7, 1, 1); ctx.fillRect(hx + 3, hy - 7, 1, 1);
+          ctx.globalAlpha = 1;
         }
 
-        // HP bar
-        ctx.fillStyle = "#1f2937";
-        ctx.fillRect(hx - 4, hy + size + 1, 9, 1);
-        const hpR = h.hp / h.maxHp;
+        // HP bar (all heroes)
+        const hpBarWidth = 8;
+        ctx.fillStyle = "#1f2937"; ctx.fillRect(hx - 4, hy + 4, hpBarWidth, 1);
+        const hpR = Math.max(0, h.hp / h.maxHp);
         ctx.fillStyle = hpR > 0.5 ? "#22c55e" : hpR > 0.25 ? "#eab308" : "#ef4444";
-        ctx.fillRect(hx - 4, hy + size + 1, Math.max(1, Math.floor(9 * hpR)), 1);
-
-        // Nick
-        if (myHero && h.uid === uid) {
-          ctx.fillStyle = "#fbbf24";
-          ctx.font = "bold 4px monospace";
-          ctx.textAlign = "center";
-          ctx.fillText("YOU", hx, hy - size - 3);
-        }
+        ctx.fillRect(hx - 4, hy + 4, Math.max(1, Math.floor(hpBarWidth * hpR)), 1);
       }
 
       // ── HUD ──
